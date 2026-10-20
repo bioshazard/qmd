@@ -3,7 +3,14 @@ set -euo pipefail
 image="${1:?image required}"
 work=$(mktemp -d)
 name="qmd-image-smoke-${RANDOM}"
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+cleanup() {
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  # UID 1000 creates SQLite's directory; the hosted runner uses a different UID.
+  docker run --rm --network none --user 0 --entrypoint sh -v "$work:/data" "$image" \
+    -c 'chmod -R a+rwX /data' >/dev/null 2>&1 || true
+  rm -rf "$work"
+}
+trap cleanup EXIT
 mkdir -p "$work/library" "$work/config/qmd" "$work/cache" "$work/home"
 printf '# Container fixture\n\nDeterministic blueberry retrieval.\n' > "$work/library/fixture.md"
 cat > "$work/config/qmd/index.yml" <<'CONFIG'
