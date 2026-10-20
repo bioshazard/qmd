@@ -1,0 +1,52 @@
+name: Publish container
+on:
+  push:
+    branches: [codex/container-v2.8.3]
+    tags: ["v*-container.*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  image:
+    if: github.repository == 'bioshazard/qmd'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Build test image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: qmd:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test immutable runtime
+        run: bash scripts/container-smoke.sh qmd:test
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        id: metadata
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=2.8.3-container,enable=${{ github.ref_type == 'branch' }}
+            type=ref,event=tag
+            type=sha
+      - uses: docker/build-push-action@v7
+        id: publish
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+      - name: Record digest
+        run: echo '${{ steps.publish.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
